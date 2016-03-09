@@ -101,12 +101,9 @@ api.add_org_resource(DataSourceAPI, '/api/data_sources/<data_source_id>', endpoi
 class DataSourceSchemaAPI(BaseResource):
     def get(self, data_source_id):
         data_source = get_object_or_404(models.DataSource.get_by_id_and_org, data_source_id, self.current_org)
-        schema = data_source.get_schema()
+        all = request.args.get('all', False)
+        schema = data_source.get_schema(all=all)
 
         return schema
 
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
-
-class DataSourceMetaDataAPI(BaseResource):
-    def get(self):
-        models.DataSourceMetaData.ge
