@@ -106,3 +106,7 @@ class DataSourceSchemaAPI(BaseResource):
         return schema
 
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
+
+class DataSourceMetaDataAPI(BaseResource):
+    def get(self):
+        models.DataSourceMetaData.ge
