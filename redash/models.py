@@ -425,7 +425,7 @@ class DataSourceTable(BaseModel):
     name = peewee.CharField()
     tags = peewee.CharField(null=True)
     description = peewee.CharField(max_length=1024, null=True)
-    created_at = DateTimeTZField(default=datetime.datetime.now)
+    created_at = DateTimeTZField(default=datetime.datetime.utcnow())
 
     class Meta:
         db_table = 'data_source_tables'
@@ -484,7 +484,7 @@ class DataSourceColumn(BaseModel):
     name = peewee.CharField()
     tags = peewee.CharField(null=True)
     description = peewee.CharField(max_length=1024, null=True)
-    created_at = DateTimeTZField(default=datetime.datetime.now)
+    created_at = DateTimeTZField(default=datetime.datetime.utcnow())
 
     class Meta:
         db_table = 'data_source_columns'
