@@ -421,7 +421,7 @@ class DataSource(BelongsToOrgMixin, BaseModel):
 
 class DataSourceTable(BaseModel):
     id = peewee.PrimaryKeyField()
-    datasource_id = peewee.ForeignKeyField(DataSource, related_name="table")
+    datasource = peewee.ForeignKeyField(DataSource, related_name="table")
     name = peewee.CharField()
     tags = peewee.CharField(null=True)
     description = peewee.CharField(max_length=1024, null=True)
@@ -448,7 +448,7 @@ class DataSourceTable(BaseModel):
         }
 
         if all:
-            d['datasource_id'] = self.datasource_id
+            d['datasource_id'] = self.datasource
             d['tags'] = self.tag
             d['description'] = self.description
 
@@ -475,8 +475,8 @@ class DataSourceTable(BaseModel):
 
     @classmethod
     def all(cls, datasource_id):
-        data_source_tables = cls.select().where(cls.datasource_id==datasource_id) \
-            .order_by(cls.datasource_id.asc(), cls.table.asc())
+        data_source_tables = cls.select().where(cls.datasource==datasource_id) \
+            .order_by(cls.datasource.asc(), cls.table.asc())
         return data_source_tables
 
 
