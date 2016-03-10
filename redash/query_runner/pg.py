@@ -112,12 +112,12 @@ class PostgreSQL(BaseSQLQueryRunner):
 
             schema[table_name]['columns'].append(row['column_name'])
 
-        for tablename, columns in schema.iteritems():
+        for tablename, data in schema.iteritems():
             table, created = DataSourceTable.get_or_create(
                 datasource=datasource_id,
                 name=tablename
             )
-            for columnname in columns:
+            for columnname in data['columns']:
                 column, created = DataSourceColumn.get_or_create(
                     table=table.id,
                     name=columnname
@@ -128,7 +128,7 @@ class PostgreSQL(BaseSQLQueryRunner):
             .order_by(DataSourceTable.name.asc())
         schemas = [table.to_dict() for table in tables_list]
 
-        return schema.values()
+        return schemas
 
     def run_query(self, query):
         connection = psycopg2.connect(self.connection_string, async=True)
