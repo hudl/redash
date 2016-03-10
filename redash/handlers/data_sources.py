@@ -94,8 +94,8 @@ class DataSourceListAPI(BaseResource):
 
         return datasource.to_dict(all=True)
 
-api.add_org_resource(DataSourceListAPI, '/api/data_sources', endpoint='data_sources')
 api.add_org_resource(DataSourceAPI, '/api/data_sources/<data_source_id>', endpoint='data_source')
+api.add_org_resource(DataSourceListAPI, '/api/data_sources', endpoint='data_sources')
 
 
 class DataSourceSchemaAPI(BaseResource):
@@ -105,33 +105,51 @@ class DataSourceSchemaAPI(BaseResource):
         schema = data_source.get_schema(all=all)
 
         return schema
-
-    def post(self, data_source_id):
-    	
-        req = request.get_json(True)
         
-        if req:
-            if not req.has_key('type'):
-                abort(400)
-        
-            if req['type'] == 'column':
-                data_source = get_object_or_404(models.DataSourceColumn.get_by_id, data_source_id)
-            elif req['type'] == 'table':
-                data_source = get_object_or_404(models.DataSourceTable.get_by_id, data_source_id)
-            else:
-                abort(400)
-        
-            if req['type'] == 'column' and req.has_key('joins'):
-               data_source.joins = req['joins']
-            if req.has_key('description'):
-                data_source.description = req['description']
-            if req.has_key('tags'):
-                data_source.tags = req['tags']
-               
-            data_source.save()
+class DataSourceTableSchemaAPI(BaseResource):
+    def get(self, table_id):
+        data_source_table = get_object_or_404(models.DataSourceTable.get_by_id, table_id)
+        return data_source_table.to_dict(all=True)
             
-            return data_source.to_dict(all=True)
+    def post(self, table_id):
+        req = request.get_json(True)
+        if req:
+            data_source_table = get_object_or_404(models.DataSourceTable.get_by_id, table_id)
+        
+            if req.has_key('description'):
+                data_source_table.description = req['description']
+            if req.has_key('tags'):
+                data_source_table.tags = req['tags']
+               
+            data_source_table.save()
+            
+            return data_source_table.to_dict(all=True)
+        else:
+            abort(400)
+    
+class DataSourceColumnSchemaAPI(BaseResource):
+    def get(self, column_id):
+        data_source_column = get_object_or_404(models.DataSourceColumn.get_by_id, column_id)
+        return data_source_column.to_dict(all=True)
+            
+    def post(self, column_id):
+        req = request.get_json(True)
+        if req:
+            data_source_column = get_object_or_404(models.DataSourceColumn.get_by_id, column_id)
+        
+            if req.has_key('joins'):
+                data_source_column.joins = req['joins']
+            if req.has_key('description'):
+                data_source_column.description = req['description']
+            if req.has_key('tags'):
+                data_source_column.tags = req['tags']
+               
+            data_source_column.save()
+            
+            return data_source_column.to_dict(all=True)
         else:
             abort(400)
                
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
+api.add_org_resource(DataSourceTableSchemaAPI, '/api/tables/<table_id>/schema')
+api.add_org_resource(DataSourceColumnSchemaAPI, '/api/columns/<column_id>/schema')
