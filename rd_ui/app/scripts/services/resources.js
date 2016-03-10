@@ -620,6 +620,14 @@
     return resource;
   };
 
+  var Schema = function ($resource) {
+    var actions = {
+        'get': {'method': 'GET', 'cache': false, 'isArray': true}
+    }
+    var resource = $resource('api/data_sources/:id/schema', {id: '@id'}, actions);
+    return resource;
+  };
+
   var Widget = function ($resource, Query) {
     var WidgetResource = $resource('api/widgets/:id', {id: '@id'});
 
@@ -647,6 +655,7 @@
       .factory('DataSource', ['$resource', DataSource])
       .factory('Alert', ['$resource', '$http', Alert])
       .factory('AlertSubscription', ['$resource', AlertSubscription])
+      .factory('Schema', ['$resource', Schema])
       .factory('Widget', ['$resource', 'Query', Widget])
       .factory('User', ['$resource', '$http', User])
       .factory('Group', ['$resource', Group]);
