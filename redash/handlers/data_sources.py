@@ -151,5 +151,5 @@ class DataSourceSchemaColumnAPI(BaseResource):
             abort(400)
                
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
-api.add_org_resource(DataSourceSchemaTableAPI, '/api/data_source_tables/<table_id>/schema')
-api.add_org_resource(DataSourceSchemaColumnAPI, '/api/data_source_columns/<column_id>/schema')
+api.add_org_resource(DataSourceSchemaTableAPI, '/api/tables/<table_id>/schema')
+api.add_org_resource(DataSourceSchemaColumnAPI, '/api/columns/<column_id>/schema')
