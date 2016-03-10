@@ -624,7 +624,15 @@
     var actions = {
         'get': {'method': 'GET', 'cache': false, 'isArray': true}
     }
-    var resource = $resource('api/data_sources/:id/schema', {id: '@id'}, actions);
+    var resource = $resource('api/data_sources/:id/schema?all=True', {id: '@id'}, actions);
+    return resource;
+  };
+
+  var Table = function ($resource) {
+    var actions = {
+        'get': {'method': 'GET', 'cache': false, 'isArray': false}
+    }
+    var resource = $resource('api/tables/:id/schema', {id: '@id'}, actions);
     return resource;
   };
 
@@ -656,6 +664,7 @@
       .factory('Alert', ['$resource', '$http', Alert])
       .factory('AlertSubscription', ['$resource', AlertSubscription])
       .factory('Schema', ['$resource', Schema])
+      .factory('Table', ['$resource', Table])
       .factory('Widget', ['$resource', 'Query', Widget])
       .factory('User', ['$resource', '$http', User])
       .factory('Group', ['$resource', Group]);
