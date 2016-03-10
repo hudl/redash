@@ -106,7 +106,7 @@ class DataSourceSchemaAPI(BaseResource):
 
         return schema
         
-class DataSourceSchemaTableAPI(BaseResource):
+class DataSourceTableSchemaAPI(BaseResource):
     def get(self, table_id):
         data_source_table = get_object_or_404(models.DataSourceTable.get_by_id, table_id)
         return data_source_table.to_dict(all=True)
@@ -127,7 +127,7 @@ class DataSourceSchemaTableAPI(BaseResource):
         else:
             abort(400)
     
-class DataSourceSchemaColumnAPI(BaseResource):
+class DataSourceColumnSchemaAPI(BaseResource):
     def get(self, column_id):
         data_source_column = get_object_or_404(models.DataSourceColumn.get_by_id, column_id)
         return data_source_column.to_dict(all=True)
@@ -151,5 +151,5 @@ class DataSourceSchemaColumnAPI(BaseResource):
             abort(400)
                
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
-api.add_org_resource(DataSourceSchemaTableAPI, '/api/tables/<table_id>/schema')
-api.add_org_resource(DataSourceSchemaColumnAPI, '/api/columns/<column_id>/schema')
+api.add_org_resource(DataSourceTableSchemaAPI, '/api/tables/<table_id>/schema')
+api.add_org_resource(DataSourceColumnSchemaAPI, '/api/columns/<column_id>/schema')
