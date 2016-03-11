@@ -6,19 +6,15 @@
   directives.directive('networkGraph', function(){
     function link(scope, el) {
 
-        var el = el[0],
-            width = el.clientWidth,
-            height = el.clientHeight,
-            votefoci = [
-                {x: width / 2, y: height / 10},
-                {x: width / 10, y: 2 * height / 3 },
-                {x: width, y: 2 * height / 3}
-            ];
+        var el = el[0];
+        var width = el.clientWidth;
+        var height = el.clientHeight;
 
         var nodes = [];
         var links = [];
         var groups = [ scope.table.name ];
 
+        // Form groups, nodes and links
         scope.table.joins.forEach(function(join) {
           var groupId = groups.indexOf(join.related_table);
 
@@ -56,16 +52,19 @@
           links.push({source: sourceNodeId, target: destNodeId});
         });
 
+        // Generate a random colour for each group (table)
         var fill = [];
         for (var i = 0; i < groups.length; i++) {
             fill.push('#'+Math.random().toString(16).substr(2,6));
         }
 
+        // Create the D3 graph
         var force = d3.layout.force()
             .nodes(nodes)
             .links(lnks)
             .start();
 
+        // Styles
         var svg = d3.select(el).append("svg")
             .attr("width", width)
             .attr("height", height);
