@@ -4,7 +4,6 @@
     Events.record(currentUser, "view", "page", "table-networks");
     $scope.$parent.pageTitle = "Table Network";
 
-    $scope.schemas = [];
     Table.get({'id': $routeParams.tableId}, function(data) {
         $scope.table = data;
     });
