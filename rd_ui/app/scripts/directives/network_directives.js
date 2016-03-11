@@ -88,8 +88,7 @@
     return {
         link: link,
         restrict: 'E',
-        scope: { data: '='},
-        templateUrl: '/views/schemas/network.html'
+        scope: { 'table': '='}
     }
  });
 })();
