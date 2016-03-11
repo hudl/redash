@@ -150,8 +150,8 @@ class DataSourceColumnAPI(BaseResource):
         return data_source_column.to_dict(all=True)
 
 
-class DataSourceJoinAPI(BaseResource):
-    def post(self, column_id):
+class DataSourceJoinCreateAPI(BaseResource):
+    def post(self):
         req = request.get_json(True)
         required_fields = ('table', 'column', 'related_table',
                            'related_column', 'cardinality')
@@ -170,8 +170,19 @@ class DataSourceJoinAPI(BaseResource):
 
         return join.to_dict(all=True)
 
-               
+class DataSourceJoinUpdateAPI(BaseResource):
+    def post(self, join_id):
+        join = get_object_or_404(models.DataSourceJoin.get_by_id, join_id)
+
+        kwargs = request.get_json(True)
+
+        join.update_instance(**kwargs)
+
+        return join.to_dict(all=True)
+
+
 api.add_org_resource(DataSourceSchemaAPI, '/api/data_sources/<data_source_id>/schema')
 api.add_org_resource(DataSourceTableAPI, '/api/tables/<table_id>/schema')
 api.add_org_resource(DataSourceColumnAPI, '/api/columns/<column_id>/schema')
-api.add_org_resource(DataSourceJoinAPI,'/api/joins/<join_id>')
+api.add_org_resource(DataSourceJoinCreateAPI,'/api/joins')
+api.add_org_resource(DataSourceJoinUpdateAPI,'/api/joins/<join_id>')
