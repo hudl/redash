@@ -74,6 +74,7 @@ module.exports = function(config) {
       'app/scripts/directives/directives.js',
       'app/scripts/directives/query_directives.js',
       'app/scripts/directives/dashboard_directives.js',
+      'app/scripts/directives/network_directives.js',
       'app/scripts/directives/plotly.js',
       'app/scripts/filters.js',
 

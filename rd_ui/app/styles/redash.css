@@ -516,3 +516,13 @@ div.table-name {
     z-index: 1000;
     opacity: 0.7;
 }
+
+network-graph {
+    height: 300px;
+    width: 300px;
+    float: left;
+}
+
+.node {
+  stroke-width: 1.5px;
+}

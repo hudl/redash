@@ -99,6 +99,10 @@ angular.module('redash', [
         templateUrl: '/views/schemas/table.html',
         controller: 'SchemaCtrl'
       });
+      $routeProvider.when('/schemas/tables/:tableId/network', {
+        templateUrl: '/views/schemas/network.html',
+        controller: 'NetworkCtrl'
+      });
 
       $routeProvider.when('/data_sources/:dataSourceId', {
         templateUrl: '/views/data_sources/edit.html',
