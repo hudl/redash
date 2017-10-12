@@ -1,7 +1,10 @@
-from base64 import b64decode
 import json
 import logging
-import sys
+from base64 import b64decode
+
+from dateutil import parser
+from requests import Session
+
 from redash.query_runner import *
 from redash.utils import JSONEncoder
 
@@ -9,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 try:
     import gspread
-    from oauth2client.client import SignedJwtAssertionCredentials
-    from dateutil import parser
+    from gspread.httpsession import HTTPSession
+    from oauth2client.service_account import ServiceAccountCredentials
     enabled = True
 except ImportError:
     enabled = False
@@ -34,12 +37,12 @@ def _guess_type(value):
         return TYPE_FLOAT
     except ValueError:
         pass
-    if str(value).lower() in ('true', 'false'):
+    if unicode(value).lower() in ('true', 'false'):
         return TYPE_BOOLEAN
     try:
         val = parser.parse(value)
         return TYPE_DATETIME
-    except ValueError:
+    except (ValueError, OverflowError):
         pass
     return TYPE_STRING
 
@@ -47,7 +50,7 @@ def _guess_type(value):
 def _value_eval_list(value):
     value_list = []
     for member in value:
-        if member == '' or member == None:
+        if member == '' or member is None:
             val = None
             value_list.append(val)
             continue
@@ -63,23 +66,79 @@ def _value_eval_list(value):
             continue
         except ValueError:
             pass
-        if str(member).lower() in ('true', 'false'):
-            val = bool(member)
-            value_list.append(val)
+        if unicode(member).lower() in ('true', 'false'):
+            if unicode(member).lower() == 'true':
+                value_list.append(True)
+            else:
+                value_list.append(False)
             continue
         try:
             val = parser.parse(member)
             value_list.append(val)
             continue
-        except ValueError:
+        except (ValueError, OverflowError):
             pass
         value_list.append(member)
     return value_list
 
 
-class GoogleSpreadsheet(BaseQueryRunner):
-    HEADER_INDEX = 0
+HEADER_INDEX = 0
 
+
+class WorksheetNotFoundError(Exception):
+    def __init__(self, worksheet_num, worksheet_count):
+        message = "Worksheet number {} not found. Spreadsheet has {} worksheets. Note that the worksheet count is zero based.".format(worksheet_num, worksheet_count)
+        super(WorksheetNotFoundError, self).__init__(message)
+
+
+def parse_worksheet(worksheet):
+    if not worksheet:
+        return {'columns': [], 'rows': []}
+
+    column_names = []
+    columns = []
+    duplicate_counter = 1
+
+    for j, column_name in enumerate(worksheet[HEADER_INDEX]):
+        if column_name in column_names:
+            column_name = u"{}{}".format(column_name, duplicate_counter)
+            duplicate_counter += 1
+
+        column_names.append(column_name)
+        columns.append({
+            'name': column_name,
+            'friendly_name': column_name,
+            'type': TYPE_STRING
+        })
+
+    if len(worksheet) > 1:
+        for j, value in enumerate(worksheet[HEADER_INDEX + 1]):
+            columns[j]['type'] = _guess_type(value)
+
+    rows = [dict(zip(column_names, _value_eval_list(row))) for row in worksheet[HEADER_INDEX + 1:]]
+    data = {'columns': columns, 'rows': rows}
+
+    return data
+
+
+def parse_spreadsheet(spreadsheet, worksheet_num):
+    worksheets = spreadsheet.worksheets()
+    worksheet_count = len(worksheets)
+    if worksheet_num >= worksheet_count:
+        raise WorksheetNotFoundError(worksheet_num, worksheet_count)
+
+    worksheet = worksheets[worksheet_num].get_all_values()
+
+    return parse_worksheet(worksheet)
+
+
+class TimeoutSession(Session):
+    def request(self, *args, **kwargs):
+        kwargs.setdefault('timeout', 300)
+        return super(TimeoutSession, self).request(*args, **kwargs)
+
+
+class GoogleSpreadsheet(BaseQueryRunner):
     @classmethod
     def annotate_query(cls):
         return False
@@ -115,35 +174,34 @@ class GoogleSpreadsheet(BaseQueryRunner):
         ]
 
         key = json.loads(b64decode(self.configuration['jsonKeyFile']))
-        credentials = SignedJwtAssertionCredentials(key['client_email'], key["private_key"], scope=scope)
-        spreadsheetservice = gspread.authorize(credentials)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(key, scope)
+
+        timeout_session = HTTPSession()
+        timeout_session.requests_session = TimeoutSession()
+        spreadsheetservice = gspread.Client(auth=creds, http_session=timeout_session)
+        spreadsheetservice.login()
         return spreadsheetservice
 
-    def run_query(self, query):
+    def test_connection(self):
+        self._get_spreadsheet_service()
+
+    def run_query(self, query, user):
         logger.debug("Spreadsheet is about to execute query: %s", query)
         values = query.split("|")
-        key = values[0] #key of the spreadsheet
-        worksheet_num = 0 if len(values) != 2 else int(values[1])# if spreadsheet contains more than one worksheet - this is the number of it
+        key = values[0]  # key of the spreadsheet
+        worksheet_num = 0 if len(values) != 2 else int(values[1])  # if spreadsheet contains more than one worksheet - this is the number of it
+
         try:
             spreadsheet_service = self._get_spreadsheet_service()
             spreadsheet = spreadsheet_service.open_by_key(key)
-            worksheets = spreadsheet.worksheets()
-            all_data = worksheets[worksheet_num].get_all_values()
-            column_names = []
-            columns = []
-            for j, column_name in enumerate(all_data[self.HEADER_INDEX]):
-                column_names.append(column_name)
-                columns.append({
-                    'name': column_name,
-                    'friendly_name': column_name,
-                    'type': _guess_type(all_data[self.HEADER_INDEX + 1][j])
-                })
-            rows = [dict(zip(column_names, _value_eval_list(row))) for row in all_data[self.HEADER_INDEX + 1:]]
-            data = {'columns': columns, 'rows': rows}
+
+            data = parse_spreadsheet(spreadsheet, worksheet_num)
+
             json_data = json.dumps(data, cls=JSONEncoder)
             error = None
-        except Exception as e:
-            raise sys.exc_info()[1], None, sys.exc_info()[2]
+        except gspread.SpreadsheetNotFound:
+            error = "Spreadsheet ({}) not found. Make sure you used correct id.".format(key)
+            json_data = None
 
         return json_data, error
 

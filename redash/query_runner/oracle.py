@@ -15,18 +15,14 @@ try:
         cx_Oracle.LOB: TYPE_STRING,
         cx_Oracle.FIXED_CHAR: TYPE_STRING,
         cx_Oracle.FIXED_NCHAR: TYPE_STRING,
-        cx_Oracle.FIXED_UNICODE: TYPE_STRING,
         cx_Oracle.INTERVAL: TYPE_DATETIME,
-        cx_Oracle.LONG_NCHAR: TYPE_STRING,
         cx_Oracle.LONG_STRING: TYPE_STRING,
-        cx_Oracle.LONG_UNICODE: TYPE_STRING,
         cx_Oracle.NATIVE_FLOAT: TYPE_FLOAT,
         cx_Oracle.NCHAR: TYPE_STRING,
         cx_Oracle.NUMBER: TYPE_FLOAT,
         cx_Oracle.ROWID: TYPE_INTEGER,
         cx_Oracle.STRING: TYPE_STRING,
         cx_Oracle.TIMESTAMP: TYPE_DATETIME,
-        cx_Oracle.UNICODE: TYPE_STRING,
     }
 
 
@@ -37,6 +33,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class Oracle(BaseSQLQueryRunner):
+    noop_query = "SELECT 1 FROM dual"
 
     @classmethod
     def get_col_type(cls, col_type, scale):
@@ -71,7 +68,7 @@ class Oracle(BaseSQLQueryRunner):
                     "title": "DSN Service Name"
                 }
             },
-            "required": ["servicename"],
+            "required": ["servicename", "user", "password", "host", "port"],
             "secret": ["password"]
         }
 
@@ -92,15 +89,15 @@ class Oracle(BaseSQLQueryRunner):
     def _get_tables(self, schema, datasource_id):
         query = """
         SELECT
-            user_tables.TABLESPACE_NAME,
+            all_tab_cols.OWNER,
             all_tab_cols.TABLE_NAME,
             all_tab_cols.COLUMN_NAME,
             all_tab_cols.DATA_TYPE
         FROM all_tab_cols
-        JOIN user_tables ON (all_tab_cols.TABLE_NAME = user_tables.TABLE_NAME)
+        WHERE all_tab_cols.OWNER NOT IN('SYS','SYSTEM','ORDSYS','CTXSYS','WMSYS','MDSYS','ORDDATA','XDB','OUTLN','DMSYS','DSSYS','EXFSYS','LBACSYS','TSMSYS')
         """
 
-        results, error = self.run_query(query)
+        results, error = self.run_query(query, None)
 
         if error is not None:
             raise Exception("Failed getting schema.")
@@ -108,8 +105,8 @@ class Oracle(BaseSQLQueryRunner):
         results = json.loads(results)
 
         for row in results['rows']:
-            if row['TABLESPACE_NAME'] != None:
-                table_name = '{}.{}'.format(row['TABLESPACE_NAME'], row['TABLE_NAME'])
+            if row['OWNER'] != None:
+                table_name = '{}.{}'.format(row['OWNER'], row['TABLE_NAME'])
             else:
                 table_name = row['TABLE_NAME']
 
@@ -159,7 +156,7 @@ class Oracle(BaseSQLQueryRunner):
             if scale <= 0:
                 return cursor.var(cx_Oracle.STRING, 255, outconverter=Oracle._convert_number, arraysize=cursor.arraysize)
 
-    def run_query(self, query):
+    def run_query(self, query, user):
         connection = cx_Oracle.connect(self.connection_string)
         connection.outputtypehandler = Oracle.output_handler
 
@@ -179,15 +176,12 @@ class Oracle(BaseSQLQueryRunner):
                 error = 'Query completed but it returned no data.'
                 json_data = None
         except cx_Oracle.DatabaseError as err:
-            logging.exception(err.message)
-            error = "Query failed. {}.".format(err.message)
+            error = u"Query failed. {}.".format(err.message)
             json_data = None
         except KeyboardInterrupt:
             connection.cancel()
             error = "Query cancelled by user."
             json_data = None
-        except Exception as err:
-            raise sys.exc_info()[1], None, sys.exc_info()[2]
         finally:
             connection.close()
 

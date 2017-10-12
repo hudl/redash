@@ -9,13 +9,17 @@ import re
 import hashlib
 import pytz
 import pystache
+import os
 
-from funcy import distinct
+from funcy import distinct, select_values
+from sqlalchemy.orm.query import Query
 
 from .human_time import parse_human_time
 from redash import settings
 
 COMMENTS_REGEX = re.compile("/\*.*?\*/")
+WRITER_ENCODING = os.environ.get('REDASH_CSV_WRITER_ENCODING', 'utf-8')
+WRITER_ERRORS = os.environ.get('REDASH_CSV_WRITER_ERRORS', 'strict')
 
 
 def utcnow():
@@ -25,6 +29,15 @@ def utcnow():
     which leads to errors in calculations.
     """
     return datetime.datetime.now(pytz.utc)
+
+
+def dt_from_timestamp(timestamp, tz_aware=True):
+    timestamp = datetime.datetime.utcfromtimestamp(float(timestamp))
+
+    if tz_aware:
+        timestamp = timestamp.replace(tzinfo=pytz.utc)
+
+    return timestamp
 
 
 def slugify(s):
@@ -57,6 +70,9 @@ class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoding class, to handle Decimal and datetime.date instances."""
 
     def default(self, o):
+        # Some SQLAlchemy collections are lazy.
+        if isinstance(o, Query):
+            return list(o)
         if isinstance(o, decimal.Decimal):
             return float(o)
 
@@ -89,7 +105,7 @@ class UnicodeWriter:
     which is encoded in the given encoding.
     """
 
-    def __init__(self, f, dialect=csv.excel, encoding="utf-8", **kwds):
+    def __init__(self, f, dialect=csv.excel, encoding=WRITER_ENCODING, **kwds):
         # Redirect output to a queue
         self.queue = cStringIO.StringIO()
         self.writer = csv.writer(self.queue, dialect=dialect, **kwds)
@@ -98,7 +114,7 @@ class UnicodeWriter:
 
     def _encode_utf8(self, val):
         if isinstance(val, (unicode, str)):
-            return val.encode('utf-8')
+            return val.encode(WRITER_ENCODING, WRITER_ERRORS)
 
         return val
 
@@ -106,7 +122,7 @@ class UnicodeWriter:
         self.writer.writerow([self._encode_utf8(s) for s in row])
         # Fetch UTF-8 output from the queue ...
         data = self.queue.getvalue()
-        data = data.decode("utf-8")
+        data = data.decode(WRITER_ENCODING)
         # ... and reencode it into the target encoding
         data = self.encoder.encode(data)
         # write to the target stream
@@ -154,3 +170,5 @@ def base_url(org):
     return settings.HOST
 
 
+def filter_none(d):
+    return select_values(lambda v: v is not None, d)

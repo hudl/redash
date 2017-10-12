@@ -1,15 +1,18 @@
+import logging
+
 from flask import make_response, request
 from flask_restful import abort
 from funcy import project
-
-from operator import itemgetter
+from sqlalchemy.exc import IntegrityError
 
 from redash import models
-from redash.utils.configuration import ConfigurationContainer, ValidationError
-from redash.permissions import require_admin, require_permission, require_access, view_only
-from redash.query_runner import query_runners, get_configuration_schema_for_query_runner_type
-from redash.tasks import refresh_schema
 from redash.handlers.base import BaseResource, get_object_or_404
+from redash.permissions import (require_access, require_admin,
+                                require_permission, view_only)
+from redash.query_runner import (get_configuration_schema_for_query_runner_type,
+                                 query_runners)
+from redash.utils import filter_none
+from redash.utils.configuration import ConfigurationContainer, ValidationError
 
 
 class DataSourceTypeListResource(BaseResource):
@@ -32,23 +35,30 @@ class DataSourceResource(BaseResource):
         schema = get_configuration_schema_for_query_runner_type(req['type'])
         if schema is None:
             abort(400)
-
         try:
             data_source.options.set_schema(schema)
-            data_source.options.update(req['options'])
+            data_source.options.update(filter_none(req['options']))
         except ValidationError:
             abort(400)
-        
+
         data_source.type = req['type']
         data_source.name = req['name']
-        data_source.save()
+        models.db.session.add(data_source)
+
+        try:
+            models.db.session.commit()
+        except IntegrityError as e:
+            if req['name'] in e.message:
+                abort(400, message="Data source with the name {} already exists.".format(req['name']))
+
+            abort(400)
 
         return data_source.to_dict(all=True)
 
     @require_admin
     def delete(self, data_source_id):
         data_source = models.DataSource.get_by_id_and_org(data_source_id, self.current_org)
-        data_source.delete_instance(recursive=True)
+        data_source.delete()
 
         return make_response('', 204)
 
@@ -59,21 +69,21 @@ class DataSourceListResource(BaseResource):
         if self.current_user.has_permission('admin'):
             data_sources = models.DataSource.all(self.current_org)
         else:
-            data_sources = models.DataSource.all(self.current_org, groups=self.current_user.groups)
+            data_sources = models.DataSource.all(self.current_org, group_ids=self.current_user.group_ids)
 
         response = {}
         for ds in data_sources:
             if ds.id in response:
                 continue
 
-            d = ds.to_dict()
-            d['view_only'] = all(project(ds.groups, self.current_user.groups).values())
-            response[ds.id] = d
+            try:
+                d = ds.to_dict()
+                d['view_only'] = all(project(ds.groups, self.current_user.group_ids).values())
+                response[ds.id] = d
+            except AttributeError:
+                logging.exception("Error with DataSource#to_dict (data source id: %d)", ds.id)
 
-        # Sorting by ID before returning makes it easier to set default source on front end -- ABD
-        sources = sorted(response.values(), key=itemgetter('id'))
-
-        return sources
+        return sorted(response.values(), key=lambda d: d['id'])
 
     @require_admin
     def post(self):
@@ -87,14 +97,25 @@ class DataSourceListResource(BaseResource):
         if schema is None:
             abort(400)
 
-        config = ConfigurationContainer(req['options'], schema)
+        config = ConfigurationContainer(filter_none(req['options']), schema)
+        # from IPython import embed
+        # embed()
         if not config.is_valid():
             abort(400)
 
-        datasource = models.DataSource.create_with_group(org=self.current_org,
-                                                         name=req['name'],
-                                                         type=req['type'],
-                                                         options=config)
+        try:
+            datasource = models.DataSource.create_with_group(org=self.current_org,
+                                                             name=req['name'],
+                                                             type=req['type'],
+                                                             options=config)
+
+            models.db.session.commit()
+        except IntegrityError as e:
+            if req['name'] in e.message:
+                abort(400, message="Data source with the name {} already exists.".format(req['name']))
+
+            abort(400)
+
         self.record_event({
             'action': 'create',
             'object_id': datasource.id,
@@ -107,123 +128,53 @@ class DataSourceListResource(BaseResource):
 class DataSourceSchemaResource(BaseResource):
     def get(self, data_source_id):
         data_source = get_object_or_404(models.DataSource.get_by_id_and_org, data_source_id, self.current_org)
-        schema = data_source.get_schema()
+        require_access(data_source.groups, self.current_user, view_only)
+        refresh = request.args.get('refresh') is not None
+        schema = data_source.get_schema(refresh)
 
         return schema
-        
-class DataSourceTableResource(BaseResource):
-    def get(self, table_id):
-        data_source_table = get_object_or_404(models.DataSourceTable.get_by_id, table_id)
-        return data_source_table.to_dict()
-            
-    def post(self, table_id):
-        # We only allow manual updates of description, as rest is updated from database
-        req = request.get_json(True)
-        required_fields = ('description',)
-
-        for f in required_fields:
-            if f not in req:
-                abort(400)
-                
-        data_source_table = get_object_or_404(models.DataSourceTable.get_by_id, table_id)
-        
-        data_source_table.description = req['description']
-        data_source_table.save()
-
-        # Refresh cache
-        refresh_schema.delay(data_source_table.datasource)
-        
-        return data_source_table.to_dict()
 
 
-class DataSourceColumnResource(BaseResource):
-    def get(self, column_id):
-        data_source_column = get_object_or_404(models.DataSourceColumn.get_by_id, column_id)
-        return data_source_column.to_dict()
-            
-    def post(self, column_id):
-        # We only allow manual updates of description, as rest is updated from database
-        req = request.get_json(True)
-        required_fields = ('description',)
-
-        for f in required_fields:
-            if f not in req:
-                abort(400)
-
-        data_source_column = get_object_or_404(models.DataSourceColumn.get_by_id, column_id)
-        
-        data_source_column.description = req['description']
-        data_source_column.save()
-
-        # Refresh cache
-        refresh_schema.delay(data_source_column.table.datasource)
-
-        return data_source_column.to_dict()
-
-
-class DataSourceJoinListResource(BaseResource):
-    def post(self):
-        req = request.get_json(True)
-        required_fields = ('column_id', 'related_table_id', 'related_column', 'cardinality')
-
-        for f in required_fields:
-            if f not in req:
-                abort(400)
-
-        column = get_object_or_404(models.DataSourceColumn.get_by_id, req['column_id'])
-        related_column = get_object_or_404(
-            models.DataSourceColumn.get,
-            table=req['related_table_id'],
-            name=req['related_column']
-        )
-
-        join, create = models.DataSourceJoin.get_or_create(
-            table=column.table,
-            column=column,
-            related_table=related_column.table,
-            related_column=related_column,
-            cardinality=req['cardinality']
-        )
-
-        refresh_schema.delay(column.table.datasource)
-
-        return join.to_dict(all=True)
-
-
-class DataSourceJoinResource(BaseResource):
-    def post(self, join_id):
-        join = get_object_or_404(models.DataSourceJoin.get_by_id, join_id)
-
-        kwargs = request.get_json(True)
-
-        join.update_instance(**kwargs)
-
-        return join.to_dict(all=True)
-
+class DataSourcePauseResource(BaseResource):
+    @require_admin
     def post(self, data_source_id):
-    	
-        req = request.get_json(True)
-        
-        if req:
-            if not req.has_key('type'):
-                abort(400)
-        
-            if req['type'] == 'column':
-                data_source = get_object_or_404(models.DataSourceColumn.get_by_id, data_source_id)
-            elif req['type'] == 'table':
-                data_source = get_object_or_404(models.DataSourceTable.get_by_id, data_source_id)
-            else:
-                abort(400)
-        
-            if req['type'] == 'column' and req.has_key('joins'):
-               data_source.joins = req['joins']
-            if req.has_key('description'):
-                data_source.description = req['description']
-            if req.has_key('tags'):
-                data_source.tags = req['tags']
-               
-            data_source.save()
-            
-            return data_source.to_dict(all=True)
+        data_source = get_object_or_404(models.DataSource.get_by_id_and_org, data_source_id, self.current_org)
+        data = request.get_json(force=True, silent=True)
+        if data:
+            reason = data.get('reason')
         else:
-            abort(400)
+            reason = request.args.get('reason')
+
+        data_source.pause(reason)
+
+        self.record_event({
+            'action': 'pause',
+            'object_id': data_source.id,
+            'object_type': 'datasource'
+        })
+        return data_source.to_dict()
+
+    @require_admin
+    def delete(self, data_source_id):
+        data_source = get_object_or_404(models.DataSource.get_by_id_and_org, data_source_id, self.current_org)
+        data_source.resume()
+
+        self.record_event({
+            'action': 'resume',
+            'object_id': data_source.id,
+            'object_type': 'datasource'
+        })
+        return data_source.to_dict()
+
+
+class DataSourceTestResource(BaseResource):
+    @require_admin
+    def post(self, data_source_id):
+        data_source = get_object_or_404(models.DataSource.get_by_id_and_org, data_source_id, self.current_org)
+
+        try:
+            data_source.query_runner.test_connection()
+        except Exception as e:
+            return {"message": unicode(e), "ok": False}
+        else:
+            return {"message": "success", "ok": True}
