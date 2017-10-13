@@ -6,7 +6,6 @@ from redash.destinations import *
 
 
 class Slack(BaseDestination):
-
     @classmethod
     def configuration_schema(cls):
         return {
@@ -14,7 +13,23 @@ class Slack(BaseDestination):
             'properties': {
                 'url': {
                     'type': 'string',
-                    'title': 'Slack webhook URL'
+                    'title': 'Slack Webhook URL'
+                },
+                'username': {
+                    'type': 'string',
+                    'title': 'Username'
+                },
+                'icon_emoji': {
+                    'type': 'string',
+                    'title': 'Icon (Emoji)'
+                },
+                'icon_url': {
+                    'type': 'string',
+                    'title': 'Icon (URL)'
+                },
+                'channel': {
+                    'type': 'string',
+                    'title': 'Channel'
                 }
             }
         }
@@ -24,9 +39,33 @@ class Slack(BaseDestination):
         return 'fa-slack'
 
     def notify(self, alert, query, user, new_state, app, host, options):
-        msg = "Check <{host}/alerts/{alert_id}|alert> / check <{host}/queries/{query_id}|query>".format(
-            host=host, alert_id=alert.id, query_id=query.id)
-        payload = {'text': msg}
+        # Documentation: https://api.slack.com/docs/attachments
+        fields = [
+            {
+                "title": "Query",
+                "value": "{host}/queries/{query_id}".format(host=host, query_id=query.id),
+                "short": True
+            },
+            {
+                "title": "Alert",
+                "value": "{host}/alerts/{alert_id}".format(host=host, alert_id=alert.id),
+                "short": True
+            }
+        ]
+        if new_state == "triggered":
+            text = alert.name + " just triggered"
+            color = "#c0392b"
+        else:
+            text = alert.name + " went back to normal"
+            color = "#27ae60"
+        
+        payload = {'attachments': [{'text': text, 'color': color, 'fields': fields}]}
+
+        if options.get('username'): payload['username'] = options.get('username')
+        if options.get('icon_emoji'): payload['icon_emoji'] = options.get('icon_emoji')
+        if options.get('icon_url'): payload['icon_url'] = options.get('icon_url')
+        if options.get('channel'): payload['channel'] = options.get('channel')
+
         try:
             resp = requests.post(options.get('url'), data=json.dumps(payload))
             logging.warning(resp.text)
@@ -34,6 +73,5 @@ class Slack(BaseDestination):
                 logging.error("Slack send ERROR. status_code => {status}".format(status=resp.status_code))
         except Exception:
             logging.exception("Slack send ERROR.")
-
 
 register(Slack)

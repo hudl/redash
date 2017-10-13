@@ -10,6 +10,7 @@ from collections import defaultdict
 
 try:
     from pyhive import presto
+    from pyhive.exc import DatabaseError
     enabled = True
 
 except ImportError:
@@ -17,6 +18,8 @@ except ImportError:
 
 PRESTO_TYPES_MAPPING = {
     "integer": TYPE_INTEGER,
+    "tinyint": TYPE_INTEGER,
+    "smallint": TYPE_INTEGER,
     "long": TYPE_INTEGER,
     "bigint": TYPE_INTEGER,
     "float": TYPE_FLOAT,
@@ -29,6 +32,8 @@ PRESTO_TYPES_MAPPING = {
 
 
 class Presto(BaseQueryRunner):
+    noop_query = 'SHOW TABLES'
+
     @classmethod
     def configuration_schema(cls):
         return {
@@ -58,17 +63,38 @@ class Presto(BaseQueryRunner):
         return enabled
 
     @classmethod
-    def annotate_query(cls):
-        return False
-
-    @classmethod
     def type(cls):
         return "presto"
 
     def __init__(self, configuration):
         super(Presto, self).__init__(configuration)
 
-    def run_query(self, query):
+    def get_schema(self, get_stats=False):
+        schema = {}
+        query = """
+        SELECT table_schema, table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+        """
+
+        results, error = self.run_query(query, None)
+
+        if error is not None:
+            raise Exception("Failed getting schema.")
+
+        results = json.loads(results)
+
+        for row in results['rows']:
+            table_name = '{}.{}'.format(row['table_schema'], row['table_name'])
+            
+            if table_name not in schema:
+                schema[table_name] = {'name': table_name, 'columns': []}
+
+            schema[table_name]['columns'].append(row['column_name'])
+
+        return schema.values()
+
+    def run_query(self, query, user):
         connection = presto.connect(
                 host=self.configuration.get('host', ''),
                 port=self.configuration.get('port', 8080),
@@ -87,9 +113,20 @@ class Presto(BaseQueryRunner):
             data = {'columns': columns, 'rows': rows}
             json_data = json.dumps(data, cls=JSONEncoder)
             error = None
-        except Exception, ex:
+        except DatabaseError as db:
+            json_data = None
+            default_message = 'Unspecified DatabaseError: {0}'.format(db.message)
+            message = db.message.get('failureInfo', {'message', None}).get('message')
+            error = default_message if message is None else message
+        except (KeyboardInterrupt, InterruptException) as e:
+            cursor.cancel()
+            error = "Query cancelled by user."
+            json_data = None
+        except Exception as ex:
             json_data = None
             error = ex.message
+            if not isinstance(error, basestring):
+                error = unicode(error)
 
         return json_data, error
 

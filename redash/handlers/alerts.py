@@ -4,8 +4,10 @@ from flask import request
 from funcy import project
 
 from redash import models
-from redash.permissions import require_access, require_admin_or_owner, view_only, require_permission
-from redash.handlers.base import BaseResource, require_fields, get_object_or_404
+from redash.handlers.base import (BaseResource, get_object_or_404,
+                                  require_fields)
+from redash.permissions import (require_access, require_admin_or_owner,
+                                require_permission, view_only)
 
 
 class AlertResource(BaseResource):
@@ -20,10 +22,8 @@ class AlertResource(BaseResource):
         alert = get_object_or_404(models.Alert.get_by_id_and_org, alert_id, self.current_org)
         require_admin_or_owner(alert.user.id)
 
-        if 'query_id' in params:
-            params['query'] = params.pop('query_id')
-
-        alert.update_instance(**params)
+        self.update_model(alert, params)
+        models.db.session.commit()
 
         self.record_event({
             'action': 'edit',
@@ -34,21 +34,33 @@ class AlertResource(BaseResource):
 
         return alert.to_dict()
 
+    def delete(self, alert_id):
+        alert = get_object_or_404(models.Alert.get_by_id_and_org, alert_id, self.current_org)
+        require_admin_or_owner(alert.user_id)
+        models.db.session.delete(alert)
+        models.db.session.commit()
+
 
 class AlertListResource(BaseResource):
     def post(self):
         req = request.get_json(True)
         require_fields(req, ('options', 'name', 'query_id'))
 
-        query = models.Query.get_by_id_and_org(req['query_id'], self.current_org)
+        query = models.Query.get_by_id_and_org(req['query_id'],
+                                               self.current_org)
         require_access(query.groups, self.current_user, view_only)
 
-        alert = models.Alert.create(
+        alert = models.Alert(
             name=req['name'],
-            query=query,
+            query_rel=query,
             user=self.current_user,
+            rearm=req.get('rearm'),
             options=req['options']
         )
+
+        models.db.session.add(alert)
+        models.db.session.flush()
+        models.db.session.commit()
 
         self.record_event({
             'action': 'create',
@@ -61,7 +73,7 @@ class AlertListResource(BaseResource):
 
     @require_permission('list_alerts')
     def get(self):
-        return [alert.to_dict() for alert in models.Alert.all(groups=self.current_user.groups)]
+        return [alert.to_dict() for alert in models.Alert.all(group_ids=self.current_user.group_ids)]
 
 
 class AlertSubscriptionListResource(BaseResource):
@@ -76,18 +88,23 @@ class AlertSubscriptionListResource(BaseResource):
             destination = models.NotificationDestination.get_by_id_and_org(req['destination_id'], self.current_org)
             kwargs['destination'] = destination
 
-        subscription = models.AlertSubscription.create(**kwargs)
+        subscription = models.AlertSubscription(**kwargs)
+        models.db.session.add(subscription)
+        models.db.session.commit()
 
         self.record_event({
             'action': 'subscribe',
             'timestamp': int(time.time()),
             'object_id': alert_id,
-            'object_type': 'alert'
+            'object_type': 'alert',
+            'destination': req.get('destination_id')
         })
 
-        return subscription.to_dict()
+        d = subscription.to_dict()
+        return d
 
     def get(self, alert_id):
+        alert_id = int(alert_id)
         alert = models.Alert.get_by_id_and_org(alert_id, self.current_org)
         require_access(alert.groups, self.current_user, view_only)
 
@@ -97,10 +114,10 @@ class AlertSubscriptionListResource(BaseResource):
 
 class AlertSubscriptionResource(BaseResource):
     def delete(self, alert_id, subscriber_id):
-        
-        subscription = get_object_or_404(models.AlertSubscription.get_by_id, subscriber_id)
+        subscription = models.AlertSubscription.query.get_or_404(subscriber_id)
         require_admin_or_owner(subscription.user.id)
-        subscription.delete_instance()
+        models.db.session.delete(subscription)
+        models.db.session.commit()
 
         self.record_event({
             'action': 'unsubscribe',
@@ -108,4 +125,3 @@ class AlertSubscriptionResource(BaseResource):
             'object_id': alert_id,
             'object_type': 'alert'
         })
-

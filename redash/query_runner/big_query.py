@@ -1,11 +1,11 @@
-from base64 import b64decode
 import datetime
 import json
-import httplib2
 import logging
 import sys
 import time
+from base64 import b64decode
 
+import httplib2
 import requests
 
 from redash import settings
@@ -18,8 +18,8 @@ try:
     import apiclient.errors
     from apiclient.discovery import build
     from apiclient.errors import HttpError
-    from oauth2client.client import SignedJwtAssertionCredentials
-    from oauth2client import gce
+    from oauth2client.service_account import ServiceAccountCredentials
+    from oauth2client.contrib import gce
 
     enabled = True
 except ImportError:
@@ -79,6 +79,8 @@ def _get_query_results(jobs, project_id, job_id, start_index):
 
 
 class BigQuery(BaseQueryRunner):
+    noop_query = "SELECT 1"
+
     @classmethod
     def enabled(cls):
         return enabled
@@ -98,12 +100,33 @@ class BigQuery(BaseQueryRunner):
                 },
                 'totalMBytesProcessedLimit': {
                     "type": "number",
-                    'title': 'Total MByte Processed Limit'
+                    'title': 'Scanned Data Limit (MB)'
+                },
+                'userDefinedFunctionResourceUri': {
+                    "type": "string",
+                    'title': 'UDF Source URIs (i.e. gs://bucket/date_utils.js, gs://bucket/string_utils.js )'
+                },
+                'useStandardSql': {
+                    "type": "boolean",
+                    'title': "Use Standard SQL (Beta)",
+                },
+                'loadSchema': {
+                    "type": "boolean",
+                    "title": "Load Schema"
+                },
+                'maximumBillingTier': {
+                    "type": "number",
+                    "title": "Maximum Billing Tier"
                 }
             },
             'required': ['jsonKeyFile', 'projectId'],
+            "order": ['projectId', 'jsonKeyFile', 'loadSchema', 'useStandardSql', 'totalMBytesProcessedLimit', 'maximumBillingTier', 'userDefinedFunctionResourceUri'],
             'secret': ['jsonKeyFile']
         }
+
+    @classmethod
+    def annotate_query(cls):
+        return False
 
     def __init__(self, configuration):
         super(BigQuery, self).__init__(configuration)
@@ -111,13 +134,14 @@ class BigQuery(BaseQueryRunner):
     def _get_bigquery_service(self):
         scope = [
             "https://www.googleapis.com/auth/bigquery",
-            ]
+            "https://www.googleapis.com/auth/drive"
+        ]
 
         key = json.loads(b64decode(self.configuration['jsonKeyFile']))
 
-        credentials = SignedJwtAssertionCredentials(key['client_email'], key['private_key'], scope=scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(key, scope)
         http = httplib2.Http(timeout=settings.BIGQUERY_HTTP_TIMEOUT)
-        http = credentials.authorize(http)
+        http = creds.authorize(http)
 
         return build("bigquery", "v2", http=http)
 
@@ -129,6 +153,10 @@ class BigQuery(BaseQueryRunner):
             "query": query,
             "dryRun": True,
         }
+
+        if self.configuration.get('useStandardSql', False):
+            job_data['useLegacySql'] = False
+
         response = jobs.query(projectId=self._get_project_id(), body=job_data).execute()
         return int(response["totalBytesProcessed"])
 
@@ -141,6 +169,18 @@ class BigQuery(BaseQueryRunner):
                 }
             }
         }
+
+        if self.configuration.get('useStandardSql', False):
+            job_data['configuration']['query']['useLegacySql'] = False
+
+
+        if "userDefinedFunctionResourceUri" in self.configuration:
+            resource_uris = self.configuration["userDefinedFunctionResourceUri"].split(',')
+            job_data["configuration"]["query"]["userDefinedFunctionResources"] = map(
+                lambda resource_uri: {"resourceUri": resource_uri}, resource_uris)
+
+        if "maximumBillingTier" in self.configuration:
+            job_data["configuration"]["query"]["maximumBillingTier"] = self.configuration["maximumBillingTier"]
 
         insert_response = jobs.insert(projectId=project_id, body=job_data).execute()
         current_row = 0
@@ -170,7 +210,25 @@ class BigQuery(BaseQueryRunner):
 
         return data
 
-    def run_query(self, query):
+    def get_schema(self, get_stats=False):
+        if not self.configuration.get('loadSchema', False):
+            return []
+
+        service = self._get_bigquery_service()
+        project_id = self._get_project_id()
+        datasets = service.datasets().list(projectId=project_id).execute()
+        schema = []
+        for dataset in datasets.get('datasets', []):
+            dataset_id = dataset['datasetReference']['datasetId']
+            tables = service.tables().list(projectId=project_id, datasetId=dataset_id).execute()
+            for table in tables.get('tables', []):
+                table_data = service.tables().get(projectId=project_id, datasetId=dataset_id, tableId=table['tableReference']['tableId']).execute()
+
+                schema.append({'name': table_data['id'], 'columns': map(lambda r: r['name'], table_data['schema']['fields'])})
+
+        return schema
+
+    def run_query(self, query, user):
         logger.debug("BigQuery got query: %s", query)
 
         bigquery_service = self._get_bigquery_service()
@@ -187,7 +245,7 @@ class BigQuery(BaseQueryRunner):
             error = None
 
             json_data = json.dumps(data, cls=JSONEncoder)
-        except apiclient.errors.HttpError, e:
+        except apiclient.errors.HttpError as e:
             json_data = None
             if e.resp.status == 400:
                 error = json.loads(e.content)['error']['message']
@@ -208,8 +266,38 @@ class BigQueryGCE(BigQuery):
         return "bigquery_gce"
 
     @classmethod
+    def enabled(cls):
+        try:
+            # check if we're on a GCE instance
+            requests.get('http://metadata.google.internal')
+        except requests.exceptions.ConnectionError:
+            return False
+
+        return True
+
+    @classmethod
     def configuration_schema(cls):
-        return {}
+        return {
+            'type': 'object',
+            'properties': {
+                'totalMBytesProcessedLimit': {
+                    "type": "number",
+                    'title': 'Total MByte Processed Limit'
+                },
+                'userDefinedFunctionResourceUri': {
+                    "type": "string",
+                    'title': 'UDF Source URIs (i.e. gs://bucket/date_utils.js, gs://bucket/string_utils.js )'
+                },
+                'useStandardSql': {
+                    "type": "boolean",
+                    'title': "Use Standard SQL (Beta)",
+                },
+                'loadSchema': {
+                    "type": "boolean",
+                    "title": "Load Schema"
+                }
+            }
+        }
 
     def _get_project_id(self):
         return requests.get('http://metadata/computeMetadata/v1/project/project-id', headers={'Metadata-Flavor': 'Google'}).content
