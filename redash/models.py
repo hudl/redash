@@ -14,7 +14,7 @@ import xlsxwriter
 from flask_login import AnonymousUserMixin, UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from passlib.apps import custom_app_context as pwd_context
-from redash import redis_connection, utils
+from redash import settings, redis_connection, utils
 from redash.destinations import (get_configuration_schema_for_destination_type,
                                  get_destination)
 from redash.metrics import database  # noqa: F401
@@ -33,7 +33,17 @@ from sqlalchemy.orm.exc import NoResultFound  # noqa: F401
 from sqlalchemy.types import TypeDecorator
 from functools import reduce
 
-db = SQLAlchemy(session_options={
+
+class SQLAlchemyExt(SQLAlchemy):
+    def apply_pool_defaults(self, app, options):
+        if settings.SQLALCHEMY_DISABLE_POOL:
+            from sqlalchemy.pool import NullPool
+            options['poolclass'] = NullPool
+        else:
+            return super(SQLAlchemyExt, self).apply_pool_defaults(app, options)
+
+
+db = SQLAlchemyExt(session_options={
     'expire_on_commit': False
 })
 
@@ -292,6 +302,16 @@ class Organization(TimestampMixin, db.Model):
     @property
     def is_public(self):
         return self.settings.get(self.SETTING_IS_PUBLIC, False)
+
+    @property
+    def is_disabled(self):
+        return self.settings.get('is_disabled', False)
+
+    def disable(self):
+        self.settings['is_disabled'] = True
+
+    def enable(self):
+        self.settings['is_disabled'] = False
 
     @property
     def admin_group(self):

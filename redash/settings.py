@@ -163,6 +163,9 @@ SESSION_COOKIE_SECURE = parse_boolean(os.environ.get("REDASH_SESSION_COOKIE_SECU
 
 LOG_LEVEL = os.environ.get("REDASH_LOG_LEVEL", "INFO")
 LOG_STDOUT = parse_boolean(os.environ.get('REDASH_LOG_STDOUT', 'false'))
+LOG_FORMAT = os.environ.get('REDASH_LOG_FORMAT', '[%(asctime)s][PID:%(process)d][%(levelname)s][%(name)s] %(message)s')
+CELERYD_LOG_FORMAT = os.environ.get('REDASH_CELERYD_LOG_FORMAT', '[%(asctime)s][PID:%(process)d][%(levelname)s][%(processName)s] %(message)s')
+CELERYD_TASK_LOG_FORMAT = os.environ.get('REDASH_CELERYD_TASK_LOG_FORMAT', '[%(asctime)s][PID:%(process)d][%(levelname)s][%(processName)s] task_name=%(task_name)s taks_id=%(task_id)s %(message)s')
 
 # Mail settings:
 MAIL_SERVER = os.environ.get('REDASH_MAIL_SERVER', 'localhost')
@@ -226,6 +229,7 @@ additional_query_runners = array_from_string(os.environ.get("REDASH_ADDITIONAL_Q
 disabled_query_runners = array_from_string(os.environ.get("REDASH_DISABLED_QUERY_RUNNERS", ""))
 
 QUERY_RUNNERS = remove(set(disabled_query_runners), distinct(enabled_query_runners + additional_query_runners))
+ADHOC_QUERY_TIME_LIMIT = int_or_none(os.environ.get('REDASH_ADHOC_QUERY_TIME_LIMIT', None))
 
 # Destinations
 default_destinations = [
