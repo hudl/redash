@@ -44,6 +44,8 @@ function QuerySourceCtrl(
     KeyboardShortcuts.unbind(shortcuts);
   });
 
+  $scope.canForkQuery = () => currentUser.hasPermission('edit_query') && !$scope.dataSource.view_only;
+
   // @override
   $scope.saveQuery = (options, data) => {
     const savePromise = saveQuery(options, data);
@@ -67,14 +69,6 @@ function QuerySourceCtrl(
     Query.format($scope.dataSource.syntax, $scope.query.query)
       .then((query) => { $scope.query.query = query; })
       .catch(error => toastr.error(error));
-  };
-
-  $scope.duplicateQuery = () => {
-    Events.record('fork', 'query', $scope.query.id);
-
-    Query.fork({ id: $scope.query.id }, (newQuery) => {
-      $location.url(newQuery.getSourceLink()).replace();
-    });
   };
 
   $scope.deleteVisualization = ($e, vis) => {
@@ -110,6 +104,7 @@ export default function init(ngModule) {
   return {
     '/queries/new': {
       template,
+      layout: 'fixed',
       controller: 'QuerySourceCtrl',
       reloadOnSearch: false,
       resolve: {
@@ -127,6 +122,7 @@ export default function init(ngModule) {
     },
     '/queries/:queryId/source': {
       template,
+      layout: 'fixed',
       controller: 'QuerySourceCtrl',
       reloadOnSearch: false,
       resolve: {

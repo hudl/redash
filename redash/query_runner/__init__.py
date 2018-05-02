@@ -45,6 +45,10 @@ class InterruptException(Exception):
     pass
 
 
+class NotSupported(Exception):
+    pass
+
+
 class BaseQueryRunner(object):
     noop_query = None
 
@@ -101,8 +105,8 @@ class BaseQueryRunner(object):
 
         return new_columns
 
-    def get_schema(self, datasource_id, get_stats=False):
-        return []
+    def get_schema(self, get_stats=False):
+        raise NotSupported()
 
     def _run_query_internal(self, query):
         results, error = self.run_query(query, None)

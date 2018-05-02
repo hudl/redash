@@ -72,8 +72,8 @@ class JobAPITest(BaseTestCase, AuthenticationTestMixin):
 
 class TestLogin(BaseTestCase):
     def setUp(self):
-        settings.PASSWORD_LOGIN_ENABLED = True
         super(TestLogin, self).setUp()
+        self.factory.org.set_setting('auth_password_login_enabled', True)
 
     @classmethod
     def setUpClass(cls):
@@ -82,12 +82,6 @@ class TestLogin(BaseTestCase):
     @classmethod
     def tearDownClass(cls):
         settings.ORG_RESOLVING = "multi_org"
-
-    def test_redirects_to_google_login_if_password_disabled(self):
-        with patch.object(settings, 'PASSWORD_LOGIN_ENABLED', False), self.app.test_request_context('/default/login'):
-            rv = self.client.get('/default/login')
-            self.assertEquals(rv.status_code, 302)
-            self.assertTrue(rv.location.endswith(url_for('google_oauth.authorize', next='/default/')))
 
     def test_get_login_form(self):
         rv = self.client.get('/default/login')
@@ -108,6 +102,18 @@ class TestLogin(BaseTestCase):
 
         with patch('redash.handlers.authentication.login_user') as login_user_mock:
             rv = self.client.post('/default/login', data={'email': user.email, 'password': 'password'})
+            self.assertEquals(rv.status_code, 302)
+            login_user_mock.assert_called_with(user, remember=False)
+
+    def test_submit_case_insensitive_user_and_password(self):
+        user = self.factory.user
+        user.hash_password('password')
+
+        self.db.session.add(user)
+        self.db.session.commit()
+
+        with patch('redash.handlers.authentication.login_user') as login_user_mock:
+            rv = self.client.post('/default/login', data={'email': user.email.upper(), 'password': 'password'})
             self.assertEquals(rv.status_code, 302)
             login_user_mock.assert_called_with(user, remember=False)
 

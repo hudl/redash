@@ -1,5 +1,5 @@
 import d3 from 'd3';
-import box from './d3box';
+import box from '@/lib/visualizations/d3box';
 import editorTemplate from './box-plot-editor.html';
 
 function boxPlotRenderer() {
@@ -176,9 +176,15 @@ export default function init(ngModule) {
 
     const editTemplate = '<boxplot-editor></boxplot-editor>';
 
+    const defaultOptions = {
+      defaultRows: 8,
+      minRows: 5,
+    };
+
     VisualizationProvider.registerVisualization({
       type: 'BOXPLOT',
       name: 'Boxplot (Deprecated)',
+      defaultOptions,
       renderTemplate,
       editorTemplate: editTemplate,
     });

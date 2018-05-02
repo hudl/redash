@@ -13,6 +13,7 @@ OPTIONAL_CREDENTIALS = parse_boolean(os.environ.get('ATHENA_OPTIONAL_CREDENTIALS
 
 try:
     import pyathena
+    import boto3
     enabled = True
 except ImportError:
     enabled = False
@@ -67,12 +68,16 @@ class Athena(BaseQueryRunner):
                 },
                 's3_staging_dir': {
                     'type': 'string',
-                    'title': 'S3 Staging Path'
+                    'title': 'S3 Staging (Query Results) Bucket Path'
                 },
                 'schema': {
                     'type': 'string',
                     'title': 'Schema Name',
                     'default': 'default'
+                },
+                'glue': {
+                    'type': 'boolean',
+                    'title': 'Use Glue Data Catalog',
                 },
             },
             'required': ['region', 's3_staging_dir'],
@@ -112,7 +117,32 @@ class Athena(BaseQueryRunner):
     def __init__(self, configuration):
         super(Athena, self).__init__(configuration)
 
+    def __get_schema_from_glue(self):
+        client = boto3.client(
+                'glue',
+                aws_access_key_id=self.configuration.get('aws_access_key', None),
+                aws_secret_access_key=self.configuration.get('aws_secret_key', None),
+                region_name=self.configuration['region']
+                )
+        schema = {}
+        paginator = client.get_paginator('get_tables')
+
+        for database in client.get_databases()['DatabaseList']:
+            iterator = paginator.paginate(DatabaseName=database['Name'])
+            for table in iterator.search('TableList[]'):
+                table_name = '%s.%s' % (database['Name'], table['Name'])
+                if table_name not in schema:
+                    column = [columns['Name'] for columns in table['StorageDescriptor']['Columns']]
+                    schema[table_name] = {'name': table_name, 'columns': column}
+                    for partition in table['PartitionKeys']:
+                        schema[table_name]['columns'].append(partition['Name'])
+
+        return schema.values()
+
     def get_schema(self, get_stats=False):
+        if self.configuration.get('glue', False):
+            return self.__get_schema_from_glue()
+
         schema = {}
         query = """
         SELECT table_schema, table_name, column_name
@@ -149,7 +179,12 @@ class Athena(BaseQueryRunner):
             column_tuples = [(i[0], _TYPE_MAPPINGS.get(i[1], None)) for i in cursor.description]
             columns = self.fetch_columns(column_tuples)
             rows = [dict(zip(([c['name'] for c in columns]), r)) for i, r in enumerate(cursor.fetchall())]
-            data = {'columns': columns, 'rows': rows}
+            qbytes = None
+            try:
+                qbytes = cursor.data_scanned_in_bytes
+            except AttributeError as e:
+                logger.debug("Athena Upstream can't get data_scanned_in_bytes: %s", e)
+            data = {'columns': columns, 'rows': rows, 'metadata': {'data_scanned': qbytes}}
             json_data = json.dumps(data, cls=JSONEncoder)
             error = None
         except KeyboardInterrupt:

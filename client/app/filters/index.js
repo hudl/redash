@@ -2,9 +2,6 @@ import moment from 'moment';
 import _capitalize from 'underscore.string/capitalize';
 import { isEmpty } from 'underscore';
 
-// eslint-disable-next-line
-const urlPattern = /(^|[\s\n]|<br\/?>)((?:https?|ftp):\/\/[\-A-Z0-9+\u0026\u2019@#\/%?=()~_|!:,.;]*[\-A-Z0-9+\u0026@#\/%=~()_|])/gi;
-
 export function durationHumanize(duration) {
   let humanized = '';
 
@@ -12,16 +9,20 @@ export function durationHumanize(duration) {
     humanized = '-';
   } else if (duration < 60) {
     const seconds = Math.round(duration);
-    humanized = `${seconds}s`;
+    humanized = `${seconds} seconds`;
   } else if (duration > 3600 * 24) {
     const days = Math.round(parseFloat(duration) / 60.0 / 60.0 / 24.0);
-    humanized = `${days}days`;
+    humanized = `${days} days`;
+  } else if (duration === 3600) {
+    humanized = '1 hour';
   } else if (duration >= 3600) {
     const hours = Math.round(parseFloat(duration) / 60.0 / 60.0);
-    humanized = `${hours}h`;
+    humanized = `${hours} hours`;
+  } else if (duration === 60) {
+    humanized = '1 minute';
   } else {
     const minutes = Math.round(parseFloat(duration) / 60.0);
-    humanized = `${minutes}m`;
+    humanized = `${minutes} minutes`;
   }
   return humanized;
 }
@@ -67,10 +68,6 @@ export function capitalize(text) {
   return null;
 }
 
-export function linkify(text) {
-  return text.replace(urlPattern, "$1<a href='$2' target='_blank'>$2</a>");
-}
-
 export function remove(items, item) {
   if (items === undefined) {
     return items;
@@ -99,7 +96,42 @@ export function notEmpty(collection) {
   return !isEmpty(collection);
 }
 
-export function showError(field, form) {
-  return (field.$touched && field.$invalid) || form.$submitted;
+export function showError(field) {
+  // In case of booleans, we get an undefined here.
+  if (field === undefined) {
+    return false;
+  }
+  return field.$touched && field.$invalid;
 }
 
+const units = [
+  'bytes',
+  'KB',
+  'MB',
+  'GB',
+  'TB',
+  'PB',
+];
+
+export function prettySize(bytes) {
+  if (isNaN(parseFloat(bytes)) || !isFinite(bytes)) {
+    return '?';
+  }
+
+  let unit = 0;
+
+  while (bytes >= 1024) {
+    bytes /= 1024;
+    unit += 1;
+  }
+
+  return bytes.toFixed(3) + ' ' + units[unit];
+}
+
+export function join(arr) {
+  if (arr === undefined || arr === null) {
+    return '';
+  }
+
+  return arr.join(' / ');
+}

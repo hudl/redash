@@ -158,3 +158,44 @@ class QueryRefreshTest(BaseTestCase):
         user = self.factory.create_user(group_ids=[group.id])
         response = self.make_request('post', self.path, user=user)
         self.assertEqual(403, response.status_code)
+    
+    def test_refresh_forbiden_with_query_api_key(self):
+        response = self.make_request('post', '{}?api_key={}'.format(self.path, self.query.api_key), user=False)
+        self.assertEqual(403, response.status_code)
+
+        response = self.make_request('post', '{}?api_key={}'.format(self.path, self.factory.user.api_key), user=False)
+        self.assertEqual(200, response.status_code)
+
+
+class TestQueryForkResourcePost(BaseTestCase):
+    def test_forks_a_query(self):
+        ds = self.factory.create_data_source(group=self.factory.org.default_group, view_only=False)
+        query = self.factory.create_query(data_source=ds)
+
+        rv = self.make_request('post', '/api/queries/{}/fork'.format(query.id))
+
+        self.assertEqual(rv.status_code, 200)
+
+    def test_must_have_full_access_to_data_source(self):
+        ds = self.factory.create_data_source(group=self.factory.org.default_group, view_only=True)
+        query = self.factory.create_query(data_source=ds)
+
+        rv = self.make_request('post', '/api/queries/{}/fork'.format(query.id))
+
+        self.assertEqual(rv.status_code, 403)
+
+
+class TestFormatSQLQueryAPI(BaseTestCase):
+    def test_format_sql_query(self):
+        admin = self.factory.create_admin()
+        query = 'select a,b,c FROM foobar Where x=1 and y=2;'
+        expected = """SELECT a,
+       b,
+       c
+FROM foobar
+WHERE x=1
+  AND y=2;"""
+
+        rv = self.make_request('post', '/api/queries/format', user=admin, data={'query': query})
+
+        self.assertEqual(rv.json['query'], expected)

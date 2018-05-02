@@ -4,6 +4,7 @@ import 'pivottable';
 import 'pivottable/dist/pivot.css';
 
 import editorTemplate from './pivottable-editor.html';
+import './pivot.less';
 
 
 function pivotTableRenderer() {
@@ -88,6 +89,9 @@ export default function init(ngModule) {
   ngModule.config((VisualizationProvider) => {
     const editTemplate = '<pivot-table-editor></pivot-table-editor>';
     const defaultOptions = {
+      defaultRows: 10,
+      defaultColumns: 3,
+      minColumns: 2,
     };
 
     VisualizationProvider.registerVisualization({

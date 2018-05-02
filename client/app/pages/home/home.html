@@ -1,12 +1,10 @@
 <div class="container">
-  <div class="tile m-t-10 m-b-5" ng-if="$ctrl.canCreateQuery || $ctrl.canCreateDashboard || $ctrl.canCreateAlert">
-    <div class="t-body p-5">
-      <a href="queries/new" ng-show="$ctrl.canCreateQuery" class="btn btn-default">New Query</a>
-      <button ng-show="$ctrl.canCreateDashboard" class="btn btn-default" ng-click="$ctrl.newDashboard()">New Dashboard
-      </button>
-      <a href="alerts/new" ng-show="$ctrl.canCreateAlert" class="btn btn-default">New Alert</a>
-    </div>
-  </div>
+  <empty-state title="Welcome to Redash 👋"
+               description="Connect to any data source, easily visualize and share your data"
+               show-dashboard-step="true"
+               show-invite-step="true"
+               onboarding-mode="true"
+               help-link="http://help.redash.io/article/32-getting-started"></empty-state>
 
   <div class="tile">
     <div class="t-body tb-padding">

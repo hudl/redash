@@ -1,7 +1,11 @@
+.venv
+.cache
+.coverage.*
 .coveralls.yml
 .idea
 *.pyc
 .coverage
+coverage.xml
 client/dist
 .DS_Store
 celerybeat-schedule*
